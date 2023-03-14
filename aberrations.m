@@ -5,7 +5,7 @@ clear all;
 clc;
 
 
-a= NonSequentialOpticalModel
+a= SequentialOpticalModel
 L1 = 2; % Distance from object to Lens 1
 f1 = 2; % Focal length of Lens 1
 L2 = 4; % Distance between Lens 1 and Lens 2

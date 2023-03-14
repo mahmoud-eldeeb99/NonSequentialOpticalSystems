@@ -6,7 +6,7 @@ close all;
 clc;
 
 
-a=NonSequentialOpticalModel;
+a=SequentialOpticalModel;
 %% set the main parameters of all matrices and filters used
 
 dim=512;      % the dimension of the array image or filter
@@ -19,7 +19,6 @@ f=1/(dim*s); % frequency spacing
 img = imread('InputImage.jpg');
 img = imresize(img,[dim,dim]);
 
-%bin_object = rgb2gray(object);
 
 %% creatig the filters
 
