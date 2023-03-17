@@ -17,40 +17,20 @@ f=1/(dim*s); % frequency spacing
 %% reading the input image
 
 img = imread('InputImage.jpg');
-img = imresize(img,[dim,dim]);
-
-
-%% creatig the filters
-
-% 1.Horizontal Single Slit 
-H_SingleSlit= a.H_SingleSlit(dim,center);
-
-% 2.horizontal double slit 
-horizontal_double_slit=a.horizontal_double_slit(dim,center);
-              
-
-%% 3.Vertical Single Slit 
-vertical_single_slit=a.vertical_single_slit(dim,center);
+img = imresize(img,[dim,dim]);                                 
                                       
-                                      
-% 4.Vertical Double Slit
-vertical_double_slit=a.vertical_double_slit(dim,center);
-                                      
-                                      
-%% 5.pinhole                                       
-                                      
-pinhole_filter=a.pinhole_filter(dim,f);                                  
+                                 
                                       
                                       
 %% Fourier transform of the Image
 FT_img= fftshift(fft2(fftshift(img(:,:,3))));
-ftimg_H_SingleSlit = FT_img.*H_SingleSlit;
-ftimg_horizontal_double_slit = FT_img.*horizontal_double_slit;
+ftimg_H_SingleSlit = FT_img.*a.H_SingleSlit(dim,center);
+ftimg_horizontal_double_slit = FT_img.*a.horizontal_double_slit(dim,center);
 
-ftimg_vertical_single_slit = FT_img.*vertical_single_slit;
-ftimg_vertical_double_slit = FT_img.*vertical_double_slit;
+ftimg_vertical_single_slit = FT_img.*a.vertical_single_slit(dim,center);
+ftimg_vertical_double_slit = FT_img.*a.vertical_double_slit(dim,center);
 
-ft_pinhole = FT_img.*pinhole_filter;
+ft_pinhole = FT_img.*a.pinhole_filter(dim,f);
 
 
 
@@ -68,93 +48,16 @@ img_pinhole = abs(fftshift(ifft2(fftshift(ft_pinhole))));
 
 
 
-%% 1. horezontal single slit 
-
-figure('Name', 'Horizontal Single slit');
-%set(gcf, 'Units','Normalized','OuterPosition',[0 0 1 1]);
-colormap('summer');
-
-subplot(1,3,1);
-imagesc(H_SingleSlit);axis('image');
-title('Horozental single slit');
-
-subplot(1,3,2);
-imagesc(img1_H_SingleSlit);axis('image');
-title('horzental single sit');
-
-subplot(2,3,3);
-mesh(img1_H_SingleSlit); 
-title('Intensity profile');
+a.draw("pinhole",a.pinhole_filter(dim,center),img_pinhole)
+a.draw('Horizontal Single slit',a.H_SingleSlit(dim,center),img1_H_SingleSlit)
+a.draw('Horizontal double slit',a.horizontal_double_slit(dim,center),img2_horizontal_double_slit)
+a.draw('verical single slit',a.vertical_single_slit(dim,center),img3_vertical_single_slit)
+a.draw('Horizontal Single slit',a.vertical_double_slit(dim,center),img4_vertical_double_slit)
 
 
 
-%% 2.horizontal double slit 
-figure('Name',  'Horizontal double slit');
-colormap('summer');
-subplot(1,3,1);
-imagesc(horizontal_double_slit);axis('image');
-title('Horizontal double slit');
-
-subplot(1,3,2);
-imagesc(img2_horizontal_double_slit);axis('image');
-title('horizontal double slit image');
-
-
-subplot(2,3,3);
-mesh(img2_horizontal_double_slit); 
-title('Intensity profile');
-
-
-%% 3. verical single slit 
-
-figure('Name', 'verical single slit');
-colormap('summer');
-
-subplot(1,3,1);
-imagesc(vertical_single_slit);axis('image');
-title('verical single slit filter');
-
-subplot(1,3,2);
-imagesc(img3_vertical_single_slit);axis('image');
-title('vertical single sit image');
-
-subplot(2,3,3);
-mesh(img3_vertical_single_slit); 
-title('Intensity profile');
-
-%% 4. vertical double slit 
-
-figure('Name', 'Horizontal Single slit');
-%set(gcf, 'Units','Normalized','OuterPosition',[0 0 1 1]);
-colormap('summer');
-
-subplot(1,3,1);
-imagesc(vertical_double_slit);axis('image');
-title('vertical double slit filter');
-
-subplot(1,3,2);
-imagesc(img4_vertical_double_slit);axis('image');
-title('vertical double slit image');
-
-subplot(2,3,3);
-mesh(img4_vertical_double_slit); 
-title('Intensity profile');
 
 
 
-%% 5.pinhole
-figure('Name', 'pinhole');
-colormap('summer');
-subplot(1,3,1);
-imagesc(pinhole_filter);axis('image');
-title('pinhole filter');
 
-subplot(1,3,2);
-imagesc(img_pinhole);axis('image');
-title('pinhole Image');
 
-subplot(2,3,3);
-mesh(img_pinhole); 
-title('Intensity profile');
-
-                 

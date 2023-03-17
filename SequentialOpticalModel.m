@@ -21,9 +21,9 @@ end
 
 
 % create the rays 
-function [rays rayColors]=createRays(z)
+function [rays rayColors]=createRays(z,s)
 
-numX = 2; % number of spatial points
+numX = s; % number of spatial points
 maxSize = 0.1; % Image size in mm
 X = -maxSize/2:maxSize/numX:maxSize/2;
 numU = 4; % number of rays from each spatial point
@@ -89,6 +89,12 @@ M = [1-p2*(d/n)      p1+p2-p1*p2*(d/n);
 end
 
 
+%lense surface power
+function out= LensSurfacePower(z,n1,n2,R)
+out=(n2-n1)/R;
+end
+
+
 
 
 
@@ -109,10 +115,10 @@ len=length(raysIn)/2
 for i= 1:len+1
     i
     raysOut(:,1)=M1*raysIn(:,1)
-    raysOut(:,2)=M1*raysIn(:,2)
+    raysOut(:,2)=M2*raysIn(:,2)
 
     raysOut(:,4)=M2*raysIn(:,4)
-    raysOut(:,3)=M2*raysIn(:,3)
+    raysOut(:,3)=M1*raysIn(:,3)
 end
 
 end
@@ -153,7 +159,30 @@ end
       
 
 
+
+
+
 %%%%% >>>>>>>>>>>> 4F Imaging system >>>>>>>>>>>>>>
+
+% draw the image func
+function out =draw(z,name,filter,img)
+figure('Name', name);
+colormap('summer');
+subplot(1,3,1);
+imagesc(filter);axis('image');
+title(name);
+
+subplot(1,3,2);
+imagesc(img);axis('image');
+title(name);
+
+subplot(2,3,3);
+mesh(img); 
+title('Intensity profile');
+end
+
+
+
 %>> filters 
 % H_Single
 function H_Single=H_SingleSlit(z,dim,center)
