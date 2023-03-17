@@ -1,4 +1,10 @@
 classdef SequentialOpticalModel < handle
+    properties (Constant)
+        ULTRAVIOLET_BORDER_HARD = 2 * pi / 400 * 10^9;
+        ULTRAVIOLET_BORDER_SOFT = 2 * pi / 450 * 10^9;
+        INFRARED_BORDER_SOFT = 2 * pi / 650 * 10^9;
+        INFRARED_BORDER_HARD = 2 * pi / 800 * 10^9;
+    end
     properties
         x_left = 0.0;
         x_right = 1.0;
@@ -7,11 +13,11 @@ classdef SequentialOpticalModel < handle
         y_rays_min = 0;
         y_rays_max = 0;
 
-        ray_color_policy = 'red';       % affects colors or rays, can be '%color_name%', 'for-each-ray', 'wavelength-dependent', 'random'
+        ray_color_policy = 'red';       % affects colors or rays, can be '%color_name%', 'for-each-ray', 'wavelength-dependent', 'natural', 'random'
         autoscale_enabled = 1;      % boolean, can be 0 (false) or 1 (true)
         autoplot_enabled = 1;        % set 0 for manual plotting
 
-        default_k = 2*pi/650*10^(9);
+        default_k = 2 * pi / 650 * 10^9;
 
         x_current = 0.0;
         x_prev = 0.0;
@@ -40,7 +46,20 @@ classdef SequentialOpticalModel < handle
         end
 
 
-        function status = createRaysFromTemplate(obj, template, n_y = 3, n_angle = 5, max_half_angle = pi/180)
+        function status = createRaysFromTemplate(obj, template, n_y, n_angle, max_half_angle)
+            if nargin < 5
+                max_half_angle = (obj.y_top - obj.y_bottom) / (obj.x_right - obj.x_left) / 3;
+                if nargin < 4
+                    n_angle = 5;
+                    if nargin < 3
+                        n_y = 3;
+                        if nargin < 2
+                            template = 'single';
+                        end
+                    end
+                end
+            end
+
             y_third = (obj.y_top - obj.y_bottom) / 3;
             switch template
                 case 'single'
@@ -48,7 +67,7 @@ classdef SequentialOpticalModel < handle
                     status = 0;
                     obj.n_visible_rays = 1;
                 case 'flat'
-                    obj.setRays([linspace(obj.y_bottom + y_third, obj.y_top - y_third, n_y);
+                    obj.setRays([obj.centralizedDistribution(obj.y_bottom + y_third, obj.y_top - y_third, n_y);
                         zeros(1, n_y);
                         ones(1, n_y);
                         zeros(1, n_y);
@@ -56,52 +75,60 @@ classdef SequentialOpticalModel < handle
                     obj.n_visible_rays = n_y;
                     status = 0;
                 case 'spherical'
-                    if fix(n_angle/2) ~= 0
-                        if rem(n_angle, 2)
-                            angles = max_half_angle / fix(n_angle/2) * [-fix(n_angle/2):fix(n_angle/2)];
-                        else
-                            angles = linspace(-max_half_angle, max_half_angle, n_angle);
-                        end
-                    else
-                        angles = 0;
-                    end
                     obj.setRays([obj.y_bottom + y_third * 3 / 2 * ones(1, n_angle);
-                        angles;
+                        obj.centralizedDistribution(-max_half_angle, max_half_angle, n_angle);
                         ones(1, n_angle);
                         zeros(1, n_angle);
                         obj.default_k * ones(1, n_angle)]);
                     status = 0;
                     obj.n_visible_rays = n_angle;
                 case 'combined'
-                    if fix(n_angle/2) ~= 0
-                        if rem(n_angle, 2)
-                            angles = max_half_angle / fix(n_angle/2) * [-fix(n_angle/2):fix(n_angle/2)];
-                        else
-                            angles = linspace(-max_half_angle, max_half_angle, n_angle);
-                        end
-                    else
-                        angles = 0;
-                    end
-                    obj.setRays([repelem(linspace(obj.y_bottom + y_third, obj.y_top - y_third, n_y), 1, n_angle);
-                        repmat(angles, 1, n_y);
+                    obj.setRays([repelem(obj.centralizedDistribution(obj.y_bottom + y_third, obj.y_top - y_third, n_y), 1, n_angle);
+                        repmat(obj.centralizedDistribution(-max_half_angle, max_half_angle, n_angle), 1, n_y);
                         ones(1, n_y * n_angle);
                         zeros(1, n_y * n_angle);
                         obj.default_k * ones(1, n_y * n_angle)]);
                     status = 0;
                     obj.n_visible_rays = n_y * n_angle;
+                case 'rainbow'
+                    obj.setRays([obj.centralizedDistribution(obj.y_bottom + y_third, obj.y_top - y_third, n_y);
+                        zeros(1, n_y);
+                        ones(1, n_y);
+                        zeros(1, n_y);
+                        obj.centralizedDistribution(obj.INFRARED_BORDER_SOFT, obj.ULTRAVIOLET_BORDER_SOFT, n_y)]);
+                    obj.n_visible_rays = n_y;
+                    status = 0;
+                case 'visible'
+                    obj.setRays([obj.centralizedDistribution(obj.y_bottom + y_third, obj.y_top - y_third, n_y);
+                        zeros(1, n_y);
+                        ones(1, n_y);
+                        zeros(1, n_y);
+                        obj.centralizedDistribution(obj.INFRARED_BORDER_HARD, obj.ULTRAVIOLET_BORDER_HARD, n_y)]);
+                    obj.n_visible_rays = n_y;
+                    status = 0;
                 otherwise
                     status = 1;
             end
         end
 
 
-        function status = createHiddenRays(obj, n_new_hidden_rays_per_existed_ray = 2, policy = 'random', max_divergency_angle = atan((obj.y_top - obj.y_bottom) / (obj.x_right - obj.x_current)))
+        function status = createHiddenRays(obj, n_new_hidden_rays_per_existed_ray, policy, max_divergency_angle)
+            if nargin < 4
+                max_divergency_angle = atan((obj.y_top - obj.y_bottom) / (obj.x_right - obj.x_current));
+                if nargin < 4
+                    policy = 'random';
+                    if nargin < 2
+                        n_new_hidden_rays_per_existed_ray = 2;
+                    end
+                end
+            end
+
             n_half = fix(n_new_hidden_rays_per_existed_ray/2);
             n_old_rays = size(obj.rays, 2);
             new_rays = repmat(obj.rays, 1, 2*n_half);
             switch policy
                 case 'uniform'
-                    angles_addition = repmat(linspace(0, 1, n_half), n_old_rays, 1);;
+                    angles_addition = repmat(linspace(0, 1, n_half), n_old_rays, 1);
                     angles_addition = max_divergency_angle / 2 * [-angles_addition, angles_addition];
                 case 'random_forward'
                     angles_addition = exp(-rand(n_old_rays, n_half).^2*5);
@@ -126,14 +153,18 @@ classdef SequentialOpticalModel < handle
 %%
 % Propagators through media and optical elements
 
-        function status = freeSpace_new(obj, L = obj.x_right - obj.x_current)
+        function status = freeSpace_new(obj, L)
+            if nargin < 2
+                L = obj.x_right - obj.x_current;
+            end
+
             propagator_first_order = [1, L, 0, 0, 0;
                 0, 1, 0, 0, 0;
                 0, 0, 1, 0, 0;
                 0, 0, 0, 1, 0;
                 0, 0, 0, 0, 1];
 
-            phase_change = obj.rays(5, :) .* L .* (1 + obj.rays(2, :).^2 / 2);      % this this provides whole Fraunhofer's difraction (first nonzero order)
+            phase_change = obj.rays(5, :) .* L .* (1 + obj.rays(2, :).^2 / 2);      % this provides whole Fraunhofer's difraction (first nonzero order)
             phase_change = rem(phase_change, 2*pi);       % renormalization
             calculated_propagator_second_order = [zeros(3, size(obj.rays, 2)); phase_change; zeros(1, size(obj.rays, 2))];        % good news: all other terms of second order with respect to y and angle are zero
 
@@ -147,16 +178,63 @@ classdef SequentialOpticalModel < handle
         end
 
 
-        function status = thinLens_new(obj, f)
+        function status = thinLens_new(obj, f, half_diameter, refraction_coeff)
+            if nargin < 4
+                refraction_coeff = 0;
+                if nargin < 3
+                    half_diameter = 1.05 * max(max(obj.rays(1,:)), -min(obj.rays(1,:)));
+                end
+            end
+            if half_diameter <= 0
+                max_rays_y = max(max(obj.rays(1,:)), -min(obj.rays(1,:)));
+                if max_rays_y == 0
+                    max_rays_y = (obj.y_top - obj.y_bottom) / 6;
+                end
+                half_diameter = 1.05 * max_rays_y;
+            end
             propagator = [1, 0, 0, 0, 0;
                 -1/f, 1, 0, 0, 0;
                 0, 0, 1, 0, 0;
                 0, 0, 0, 1, 0;
                 0, 0, 0, 0, 1];
 
-            obj.setRays(propagator * obj.rays);
+            affected_rays = abs(obj.rays(1,:)) <= half_diameter;
+            unaffected_rays = ~affected_rays;
+            sample_array = [1: size(obj.rays, 2)];
+            affected_rays =  sample_array(affected_rays);
+            unaffected_rays = sample_array(unaffected_rays);
+
+            if size(refraction_coeff, 2) > 1
+                chrom_aberration_coeff = zeros(1, size(obj.rays, 2));
+                for iOrder = 1 : (size(refraction_coeff, 2) - 1)
+                    chrom_aberration_coeff = chrom_aberration_coeff + refraction_coeff(iOrder + 1) * (2 * pi)^(-2*iOrder) * (obj.rays(5, affected_rays)).^(2*iOrder);
+                end
+                chrom_aberration_angle_change = - 1 / f / (refraction_coeff(1) - 1) * chrom_aberration_coeff .* obj.rays(1, affected_rays);
+            else
+                chrom_aberration_angle_change = zeros(1, size(affected_rays, 2));
+            end
+            calculated_propagator_second_order = [zeros(1, size(affected_rays, 2));
+                chrom_aberration_angle_change;
+                zeros(3, size(affected_rays, 2))];
+
+            new_rays = zeros(5, size(obj.rays, 2));
+            new_rays(:, affected_rays) = propagator * obj.rays(:, affected_rays) + calculated_propagator_second_order;
+            new_rays(:, unaffected_rays) = obj.rays(:, unaffected_rays);
+            obj.setRays(new_rays);
+
             if obj.autoplot_enabled
-                obj.drawLens(f);
+                obj.drawLens(f, half_diameter);
+            end
+            status = 0;
+        end
+
+
+        function status = obstacle(obj, y_bottom, y_top)
+            rays_to_keep = (obj.rays(1,:) < y_bottom) | (y_top < obj.rays(1,:));
+            obj.deleteRays(rays_to_keep);
+
+            if obj.autoplot_enabled
+                obj.drawWall(y_bottom, y_top);
             end
             status = 0;
         end
@@ -165,7 +243,21 @@ classdef SequentialOpticalModel < handle
 %%
 % Helpers
 
-        function status = setBorders(obj, borders);
+        function distribution = centralizedDistribution(obj, left, right, n)
+            if n > 1
+                if rem(n, 2)
+                    n_half = fix(n / 2);
+                    distribution = (left + right) / 2 + (right - left) / (2 * n_half) * [-n_half : n_half];
+                else
+                    distribution = linspace(left, right, n);
+                end
+            else
+                distribution = (right + left) / 2;
+            end
+        end
+
+
+        function status = setBorders(obj, borders)
             if nargin > 0
                 obj.x_left = borders(1);
                 obj.x_right = borders(2);
@@ -175,7 +267,7 @@ classdef SequentialOpticalModel < handle
                 status = 0;
             else
                 status = 1;
-            endif
+            end
         end
 
 
@@ -187,18 +279,18 @@ classdef SequentialOpticalModel < handle
                     y_min = min(y_min, obj.y_rays_min);
                     y_max = max(y_max, obj.y_rays_max);
                 end
-                y_bottom = y_min - (y_max - y_min)/2;
-                y_top = y_max + (y_max - y_min)/2;
+                y_bottom = y_min - 0.2 * (y_max - y_min);
+                y_top = y_max + 0.2 * (y_max - y_min);
                 if y_top ~= y_bottom
                     obj.setBorders([obj.x_left, obj.x_right, y_bottom, y_top]);
-                endif
+                end
             end
         end
 
         function status = start(obj)
             obj.x_current = obj.x_left;
-            obj.y_rays_min = min(obj.rays(1, 1:obj.n_visible_rays));
-            obj.y_rays_max = max(obj.rays(1, 1:obj.n_visible_rays));
+            obj.y_rays_min = min(obj.y_bottom + 1/7 * (obj.y_top - obj.y_bottom), min(obj.rays(1, 1:obj.n_visible_rays)));
+            obj.y_rays_max = max(obj.y_top - 1/7 * (obj.y_top - obj.y_bottom), max(obj.rays(1, 1:obj.n_visible_rays)));
         end
 
 
@@ -210,17 +302,30 @@ classdef SequentialOpticalModel < handle
         end
 
 
-        function status = calcIntensity(obj, window = 1, resolution = max(19, min(151, size(obj.rays, 2)/100)))
+        function status = deleteRays(obj, rays_to_keep)
+            obj.n_visible_rays = sum(rays_to_keep(1:obj.n_visible_rays));
+            new_rays = obj.rays(:, rays_to_keep);
+            obj.setRays(new_rays);
+        end
+
+
+        function status = calcIntensity(obj, resolution, window)
+            if nargin < 3
+                window = 1;
+                if nargin < 2
+                    resolution = max(19, min(151, fix(size(obj.rays, 2)/(2*10^4))));
+                end
+            end
             obj.intensity = zeros(1,resolution);
             delta = (obj.y_top - obj.y_bottom) / resolution;
+            amplitude = exp(i * obj.rays(4,:)) .* obj.rays(3,:);
+            rays_y = obj.rays(1,:);
+            Y = obj.y_bottom + ([1:resolution] - 0.5) * delta;
             for j = 1:resolution
                 y = obj.y_bottom + (j - 0.5) * delta;
-                mask = (y - window * delta / 2 < obj.rays(1,:)) & (obj.rays(1,:) <= y + window * delta / 2);
-                obj.intensity(j) = sum(mask .* obj.rays(3,:) .* exp(i * obj.rays(4,:)));
-                %obj.intensity(:,j) = sum(([1; 1] * (mask .* obj.rays(3,:))) .* [cos(obj.rays(4,:)); sin(obj.rays(4,:))], 2);
+                mask = (y - window * delta / 2 < rays_y) & (rays_y <= y + window * delta / 2);
+                obj.intensity(j) = abs(sum(amplitude(mask)))^2;
             end
-            %obj.intensity = obj.intensity(:,1).^2 + obj.intensity(:,2).^2;
-            obj.intensity = abs(obj.intensity).^2;
             max_intensity = max(obj.intensity);
             if max_intensity ~= 0
                 obj.intensity = 1 / max_intensity * obj.intensity;
@@ -229,6 +334,49 @@ classdef SequentialOpticalModel < handle
                 obj.drawIntensity(resolution);
             end
             status = 0;
+        end
+
+
+        function color_returned = colorFromWavevector(obj, k, invisible_color)
+            switch invisible_color
+                case 'black'
+                    r0 = 0;
+                    g0 = 0;
+                    b0 = 0;
+                case 'white'
+                    r0 = 1;
+                    g0 = 1;
+                    b0 = 1;
+                otherwise
+                    r0 = 0;
+                    g0 = 0;
+                    b0 = 0;
+            end
+            red = obj.INFRARED_BORDER_SOFT;
+            green = (obj.INFRARED_BORDER_SOFT + obj.ULTRAVIOLET_BORDER_SOFT) / 2;
+            blue = obj.ULTRAVIOLET_BORDER_SOFT;
+            if (k <= obj.INFRARED_BORDER_HARD) || (obj.ULTRAVIOLET_BORDER_HARD <= k)
+                r = r0;
+                g = g0;
+                b = b0;
+            elseif (obj.INFRARED_BORDER_HARD < k) && (k <= red)
+                r = (k - obj.INFRARED_BORDER_HARD) / (red - obj.INFRARED_BORDER_HARD) + r0 * (red - k) / (red - obj.INFRARED_BORDER_HARD);
+                g = g0 * (red - k) / (red - obj.INFRARED_BORDER_HARD);
+                b = b0 * (red - k) / (red - obj.INFRARED_BORDER_HARD);
+            elseif (red < k) && (k <= green)
+                r = (green - k) / (green - red);
+                g = (k - red) / (green - red);
+                b = 0;
+            elseif (green < k) && (k <= blue)
+                r = 0;
+                g = (blue - k) / (blue - green);
+                b = (k - green) / (blue - green);
+            elseif (blue < k) && (k < obj.ULTRAVIOLET_BORDER_HARD)
+                r = cos(((acos(r0)/pi + 0.5) * (k - blue) / (obj.ULTRAVIOLET_BORDER_HARD - blue) - 0.5) * pi);
+                g = g0 * (k - blue) / (obj.ULTRAVIOLET_BORDER_HARD - blue);
+                b = (obj.ULTRAVIOLET_BORDER_HARD - k) / (obj.ULTRAVIOLET_BORDER_HARD - blue) + g0 * (k - blue) / (obj.ULTRAVIOLET_BORDER_HARD - blue);
+            end
+            color_returned = [r; g; b];
         end
 %%
 % Drawing
@@ -255,27 +403,38 @@ classdef SequentialOpticalModel < handle
                     for i = 1:n_rays
                         line(X(:,i), Y(:,i), 'Color', line_color(:,i));
                     end
+                case 'natural'
+                    for i = 1:n_rays
+                        line(X(:,i), Y(:,i), 'Color', obj.colorFromWavevector(obj.rays(5, i), 'white'));
+                    end
                 case 'wavelength-dependent'
-                        ;
+                    for i = 1:n_rays
+                        line(X(:,i), Y(:,i), 'Color', obj.colorFromWavevector(obj.rays(5, i), 'black'));
+                    end
             otherwise
                 line(X, Y, 'Color', obj.ray_color_policy);
             end
+            obj.autoScale(1);
         end
 
 
-        function drawLens(obj, f)
-            obj.autoScale(0);
-            y_delta = 0.9 * (obj.y_top - obj.y_bottom)/4;
-            line([obj.x_current; obj.x_current], [obj.y_bottom + y_delta; obj.y_top - y_delta], 'Color', [0, 0, 0], 'LineWidth', 2);
-            text(obj.x_current, obj.y_bottom + y_delta*2/3, ['f = ', num2str(f)], 'FontSize', 14);
+        function drawLens(obj, f, half_diameter)
+            y_center = (obj.y_top + obj.y_bottom)/2;
+            line([obj.x_current; obj.x_current], [y_center - half_diameter; y_center + half_diameter], 'Color', [0, 0, 0], 'LineWidth', 2);
+            text(obj.x_current, y_center - half_diameter - 0.05 * (obj.y_top - obj.y_bottom), ['f = ', num2str(f)], 'FontSize', 14);
             obj.autoScale(1);
+        end
+
+
+        function drawWall(obj, y_min, y_max)
+            line([obj.x_current; obj.x_current], [y_min; y_max], 'Color', [0, 0, 0], 'LineWidth', 2);
         end
 
 
         function drawIntensity(obj, resolution)
             line([obj.x_right, obj.x_right], [obj.y_bottom, obj.y_top], 'Color', [0,0,0]);
-            axis([obj.x_left, obj.x_right + 1, obj.y_bottom, obj.y_top]);
-            X = obj.x_right + obj.intensity;
+            axis([obj.x_left, obj.x_right * 1.1, obj.y_bottom, obj.y_top]);
+            X = obj.x_right + obj.intensity * 0.1 * obj.x_right;
             Y = obj.y_bottom + (obj.y_top - obj.y_bottom) / resolution * ([1:resolution] - 0.5);
             plot(X, Y);
         end

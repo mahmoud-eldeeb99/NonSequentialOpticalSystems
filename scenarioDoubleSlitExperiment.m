@@ -12,9 +12,8 @@
 % can approximate this integral as summ and consider rays as plane waves. We
 % are also using Huygens–Fresnel principle which is consistent with
 % Fresnel–Kirchhoff diffraction formulsim. There are no principal restrictions.
-% Although, we still have to use outstanding number of rays, due to zero
-% thickness and constant creating new rays following the Huygens–Fresnel
-% principle.
+% Although, sometimes we still have to use outstanding number of rays, due to
+% radial nature of Huygens–Fresnel principle.
 
 clear all;
 clf; hold on;
@@ -28,20 +27,19 @@ D = 0.0065;
 L = 10;
 % We want to have enough ray to approximate integral, bu we do not want to draw
 % all of them. Let define how many rays we are needed (lower this number for
-% speed up)
+% speed up, increase for more smooth and precise picture)
 N = 10^4;
 
 sim = SequentialOpticalModel;
 sim.setBorders([0, L, -D, D]);
 sim.createRaysFromTemplate('combined', 2, 15, 1.5*D/L);
 % We want 2 point source 15 radial rays each. They radiate into angle, ajusted
-% for simulation area. But we need some extra tweaking
+% for simulation area. But we need some extra tweaking for y coordinate
 sim.rays(1, 1:15) = -D/2;
 sim.rays(1, 16:30) = D/2;
 % Also we want to switch off autoscale, because we are interested only in
 %crossection
 sim.autoscale_enabled = 0;
-
 sim.start;
 
 % Now we want to add some rays, that would not be showed, but will be
@@ -55,6 +53,8 @@ sim.createHiddenRays(N);
 % sim.thinLens_new(L * 2 / 3);
 
 sim.freeSpace_new;
-% Let calculate intensity and plot it!
-sim.calcIntensity;
+% Let calculate intensity and plot it! First argument is resolution. We want
+% higher than default value, because defaults are to be workaround at any case,
+% while we have good usage scenario
+sim.calcIntensity(120);
 
