@@ -25,6 +25,7 @@ classdef SequentialOpticalModel < handle
         rays = [0; 0; 1; 0; 2*pi/650*10^(9)];       % [y, angle, amplitude, phase, wave vector]. Note: wave amplitude = amplitude * exp(- i * (wave vector) * (delta x))
         rays_prev = [0; 0; 1; 0; 2*pi/650*10^(9)];
         intensity;
+        intensity_meas_point;
     end
 
     methods
@@ -125,7 +126,13 @@ classdef SequentialOpticalModel < handle
 
             n_half = fix(n_new_hidden_rays_per_existed_ray/2);
             n_old_rays = size(obj.rays, 2);
-            new_rays = repmat(obj.rays, 1, 2*n_half);
+            old_rays = obj.rays;
+            delta_x = - 1 / 2 * old_rays(1, :) .* old_rays(2, :);
+            old_rays = obj.freeSpacePropagate(old_rays, delta_x);
+            delta_x_phi = - old_rays(4, :) / old_rays(5, :) * (1 - old_rays(2, :).^2 / 2);
+            old_rays = obj.freeSpacePropagate(old_rays, delta_x_phi);
+            delta_x = delta_x + delta_x_phi;
+            new_rays = repmat(old_rays, 1, 2*n_half);
             switch policy
                 case 'uniform'
                     angles_addition = repmat(linspace(0, 1, n_half), n_old_rays, 1);
@@ -145,6 +152,13 @@ classdef SequentialOpticalModel < handle
             amplitude_inv_norm = repmat(transpose(amplitude_inv_norm), 1, 2*   n_half + 1);
             new_rays(2,:) = new_rays(2,:) + transpose(angles_addition(:));
             new_rays(3,:) = new_rays(3,:) .* cos(transpose(angles_addition(:)));
+            mask = [0: 2*n_half - 1] * n_old_rays;
+            for i_ray = 1 : n_old_rays
+                %for i_sub_ray = 1 : 2*n_half
+                %    new_rays(:, i_ray * i_sub_ray) = obj.freeSpacePropagate(new_rays(:, i_ray * i_sub_ray), -delta_x(i_ray));
+                %end
+                new_rays(:, i_ray + mask) = obj.freeSpacePropagate(new_rays(:, i_ray + mask), -delta_x(i_ray));
+            end
             obj.rays = [obj.rays, new_rays];
             obj.rays(3,:) = obj.rays(3,:) .* amplitude_inv_norm;
         end
@@ -153,22 +167,33 @@ classdef SequentialOpticalModel < handle
 %%
 % Propagators through media and optical elements
 
+        function rays_output = freeSpacePropagate(obj, rays_input, L)
+            if size(L, 2) == 1
+                propagator_first_order = [1, L, 0, 0, 0;
+                    0, 1, 0, 0, 0;
+                    0, 0, 1, 0, 0;
+                    0, 0, 0, 1, 0;
+                    0, 0, 0, 0, 1];
+
+                first_order_term = propagator_first_order * rays_input;
+            else
+                first_order_term(1, :) = rays_input(1, :) + L .* rays_input(2, :);
+                first_order_term(2:5, :) = rays_input(2:5, :);
+            end
+
+            phase_change = rays_input(5, :) .* L .* (1 + rays_input(2, :).^2 / 2);      % this provides angle-dependent phase change
+            phase_change = rem(phase_change, 2*pi);       % renormalization
+            second_order_term = [zeros(3, size(rays_input, 2)); phase_change; zeros(1, size(rays_input, 2))];        % good news: all other terms of second order with respect to y and angle are zero
+
+            rays_output = first_order_term + second_order_term;
+        end
+
+
         function status = freeSpace_new(obj, L)
             if nargin < 2
                 L = obj.x_right - obj.x_current;
             end
-
-            propagator_first_order = [1, L, 0, 0, 0;
-                0, 1, 0, 0, 0;
-                0, 0, 1, 0, 0;
-                0, 0, 0, 1, 0;
-                0, 0, 0, 0, 1];
-
-            phase_change = obj.rays(5, :) .* L .* (1 + obj.rays(2, :).^2 / 2);      % this provides whole Fraunhofer's difraction (first nonzero order)
-            phase_change = rem(phase_change, 2*pi);       % renormalization
-            calculated_propagator_second_order = [zeros(3, size(obj.rays, 2)); phase_change; zeros(1, size(obj.rays, 2))];        % good news: all other terms of second order with respect to y and angle are zero
-
-            obj.setRays(propagator_first_order * obj.rays + calculated_propagator_second_order);
+            obj.setRays(obj.freeSpacePropagate(obj.rays, L));
             obj.x_prev = obj.x_current;
             obj.x_current = obj.x_current + L;
             if obj.autoplot_enabled
@@ -206,8 +231,8 @@ classdef SequentialOpticalModel < handle
 
             if size(refraction_coeff, 2) > 1
                 chrom_aberration_coeff = zeros(1, size(obj.rays, 2));
-                for iOrder = 1 : (size(refraction_coeff, 2) - 1)
-                    chrom_aberration_coeff = chrom_aberration_coeff + refraction_coeff(iOrder + 1) * (2 * pi)^(-2*iOrder) * (obj.rays(5, affected_rays)).^(2*iOrder);
+                for i_order = 1 : (size(refraction_coeff, 2) - 1)
+                    chrom_aberration_coeff = chrom_aberration_coeff + refraction_coeff(i_order + 1) * (2 * pi)^(-2*i_order) * (obj.rays(5, affected_rays)).^(2*i_order);
                 end
                 chrom_aberration_angle_change = - 1 / f / (refraction_coeff(1) - 1) * chrom_aberration_coeff .* obj.rays(1, affected_rays);
             else
@@ -230,7 +255,7 @@ classdef SequentialOpticalModel < handle
 
 
         function status = obstacle(obj, y_bottom, y_top)
-            rays_to_keep = (obj.rays(1,:) < y_bottom) | (y_top < obj.rays(1,:));
+            rays_to_keep = (obj.rays(1,:) <= y_bottom) | (y_top <= obj.rays(1,:));
             obj.deleteRays(rays_to_keep);
 
             if obj.autoplot_enabled
@@ -309,29 +334,72 @@ classdef SequentialOpticalModel < handle
         end
 
 
-        function status = calcIntensity(obj, resolution, window)
-            if nargin < 3
-                window = 1;
-                if nargin < 2
-                    resolution = max(19, min(151, fix(size(obj.rays, 2)/(2*10^4))));
+        function status = calcIntensity(obj, resolution, max_rays_in_batch, coherence_length)
+            if nargin < 4
+                coherence_length = 2*pi / min(obj.rays(5,:));
+                if nargin < 3
+                    max_rays_in_batch = 100;
+                    if nargin < 2
+                        resolution = max(19, min(151, fix(size(obj.rays, 2)/(2*10^4))));
+                    end
                 end
             end
+
             obj.intensity = zeros(1,resolution);
-            delta = (obj.y_top - obj.y_bottom) / resolution;
             amplitude = exp(i * obj.rays(4,:)) .* obj.rays(3,:);
             rays_y = obj.rays(1,:);
-            Y = obj.y_bottom + ([1:resolution] - 0.5) * delta;
+
+            power_y = (obj.y_top + obj.y_bottom) / 2;
+            window_half = (obj.y_top - obj.y_bottom) / 2;
+            numeric_array = [1 : size(rays_y, 2)];
+            mask_log = ((power_y(1) - window_half(1) < rays_y) & (rays_y <= power_y(1) + window_half(1)));
+            mask_list = {numeric_array(mask_log)};
+            n_rays_inside = size(rays_y(mask_list{1}), 2);
+            [max_rays_inside, index_max_elem] = max(n_rays_inside);
+
+            while max_rays_inside > max_rays_in_batch
+                [max_rays_inside, index_max_elem] = max(n_rays_inside);
+                while (window_half(index_max_elem) < coherence_length) && (max_rays_inside > 0)
+                    n_rays_inside(index_max_elem) = 0;
+                    [max_rays_inside, index_max_elem] = max(n_rays_inside);
+                end
+
+                window_half(index_max_elem) = window_half(index_max_elem) / 2;
+                window_half(end + 1) = window_half(index_max_elem);
+                power_y(end + 1) = power_y(index_max_elem) + window_half(index_max_elem);
+                power_y(index_max_elem) = power_y(index_max_elem) - window_half(index_max_elem);
+
+                mask_left_log = (power_y(index_max_elem) - window_half(index_max_elem) < rays_y(mask_list{index_max_elem})) & (rays_y(mask_list{index_max_elem}) <= power_y(index_max_elem) + window_half(index_max_elem));
+                mask_right_log = ~mask_left_log;
+                mask_left_numeric = mask_list{index_max_elem}(mask_left_log);
+                mask_right_numeric = mask_list{index_max_elem}(mask_right_log);
+                mask_list{index_max_elem} = mask_left_numeric;
+                mask_list{end + 1} = mask_right_numeric;
+
+                n_rays_inside(index_max_elem) = size(rays_y(mask_left_numeric), 2);
+                n_rays_inside(end + 1) = size(rays_y(mask_right_numeric), 2);
+            end
+
+            for j = 1 : size(power_y, 2)
+                power_value(j) = abs(sum(amplitude(mask_list{j})))^2;
+            end
+
+            delta_half = (obj.y_top - obj.y_bottom) / resolution / 2;
+            intensity_y = obj.y_bottom + 2 * delta_half * ([1:resolution] - 0.5);
             for j = 1:resolution
-                y = obj.y_bottom + (j - 0.5) * delta;
-                mask = (y - window * delta / 2 < rays_y) & (rays_y <= y + window * delta / 2);
-                obj.intensity(j) = abs(sum(amplitude(mask)))^2;
+                mask = (intensity_y(j) - delta_half < power_y) & (power_y <= intensity_y(j) + delta_half);
+                intensity_value(j) = sum(power_value(mask));
             end
-            max_intensity = max(obj.intensity);
+
+            obj.intensity_meas_point = intensity_y;
+            max_intensity = max(intensity_value);
             if max_intensity ~= 0
-                obj.intensity = 1 / max_intensity * obj.intensity;
+                intensity_value = 1 / max_intensity * intensity_value;
+                obj.intensity = intensity_value;
             end
+
             if obj.autoplot_enabled
-                obj.drawIntensity(resolution);
+                obj.drawIntensity(obj.intensity, obj.intensity_meas_point);
             end
             status = 0;
         end
@@ -383,6 +451,7 @@ classdef SequentialOpticalModel < handle
 
         function drawRays_new(obj, x_a, x_b, rays_a, rays_b)
             n_rays = obj.n_visible_rays;
+            %n_rays = size(obj.rays, 2);
             X = [obj.x_prev * ones(1, n_rays);
                 obj.x_current * ones(1, n_rays)];
             Y = [obj.rays_prev(1, 1:n_rays);
@@ -420,7 +489,33 @@ classdef SequentialOpticalModel < handle
 
         function drawLens(obj, f, half_diameter)
             y_center = (obj.y_top + obj.y_bottom)/2;
-            line([obj.x_current; obj.x_current], [y_center - half_diameter; y_center + half_diameter], 'Color', [0, 0, 0], 'LineWidth', 2);
+            x_center = obj.x_current;
+            width = half_diameter / 4;
+            width_curve = width / 3;
+            width_inner = width - 2 * width_curve;
+            n_pieces = 16;
+            r = (half_diameter^2 + width_curve^2) / (2 * width_curve);
+            max_angle = asin(half_diameter / r);
+            angle = linspace(-max_angle, max_angle, n_pieces);
+            if f >= 0
+                arc_y_left = y_center + r * sin(angle);
+                arc_x_left = x_center + r * (cos(max_angle) - cos(angle)) - width_inner/2;
+                arc_y_right = y_center - r * sin(angle);
+                arc_x_right = x_center - r * (cos(max_angle) - cos(angle)) + width_inner/2;
+            else
+                arc_y_left = y_center + r * sin(angle);
+                arc_x_left = x_center - r * (1 - cos(angle)) - width_inner/2;
+                arc_y_right = y_center - r * sin(angle);
+                arc_x_right = x_center + r * (1 - cos(angle)) + width_inner/2;
+            end
+            arc_y_left = [arc_y_left(1), arc_y_left];
+            arc_x_left = [x_center, arc_x_left];
+            arc_y_right(end + 1) = arc_y_right(end);
+            arc_x_right(end + 1) = x_center;
+
+            arc_y = [arc_y_left, arc_y_right];
+            arc_x = [arc_x_left, arc_x_right];
+            area(arc_x, arc_y, 'FaceColor', 'blue','FaceAlpha', 0.5, 'EdgeColor', 'black', 'EdgeAlpha', 1, 'LineWidth', 0.5);
             text(obj.x_current, y_center - half_diameter - 0.05 * (obj.y_top - obj.y_bottom), ['f = ', num2str(f)], 'FontSize', 14);
             obj.autoScale(1);
         end
@@ -431,11 +526,11 @@ classdef SequentialOpticalModel < handle
         end
 
 
-        function drawIntensity(obj, resolution)
+        function drawIntensity(obj, intensity, Y)
             line([obj.x_right, obj.x_right], [obj.y_bottom, obj.y_top], 'Color', [0,0,0]);
             axis([obj.x_left, obj.x_right * 1.1, obj.y_bottom, obj.y_top]);
-            X = obj.x_right + obj.intensity * 0.1 * obj.x_right;
-            Y = obj.y_bottom + (obj.y_top - obj.y_bottom) / resolution * ([1:resolution] - 0.5);
+            X = obj.x_right + intensity * 0.1 * obj.x_right;
+
             plot(X, Y);
         end
 
@@ -455,6 +550,23 @@ classdef SequentialOpticalModel < handle
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Old functions
+
+
+
+function raysOut = thickLens(z,raysIn,p1,p2,d,n)
+
+M = [1-p2*(d/n)      p1+p2-p1*p2*(d/n);
+    -d/n             1-p1*(d/n)];
+
+ raysOut = M*raysIn;
+end
+
+
+%lense surface power
+function out= LensSurfacePower(z,n1,n2,R)
+out=(n2-n1)/R;
+end
+
 
 
 function raysOut = freeSpace(z, raysIn, L)
