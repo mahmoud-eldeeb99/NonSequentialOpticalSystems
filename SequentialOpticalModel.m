@@ -194,6 +194,7 @@ classdef SequentialOpticalModel < handle
                 first_order_term(2:5, :) = rays_input(2:5, :);
             end
 
+            %phase_change = rays_input(5, :) .* L ./ cos(rays_input(2, :));
             phase_change = rays_input(5, :) .* L .* (1 + rays_input(2, :).^2 / 2);      % this provides angle-dependent phase change
             phase_change = rem(phase_change, 2*pi);       % renormalization
             second_order_term = [zeros(3, size(rays_input, 2)); phase_change; zeros(1, size(rays_input, 2))];        % good news: all other terms of second order with respect to y and angle are zero
@@ -357,7 +358,7 @@ classdef SequentialOpticalModel < handle
                     if nargin < 3
                         method = 'cluster';
                         if nargin < 2
-                            resolution = max(19, min(151, fix(size(obj.rays, 2)/(2*10^4))));
+                            resolution = 200;
                         end
                     end
                 end
@@ -381,11 +382,14 @@ classdef SequentialOpticalModel < handle
                     for i_cluster = 1 : max(obj.cluster_number)
                         mask_cluster_log = (obj.cluster_number == i_cluster);
                         mask_rays_numeric = numeric_array(mask_cluster_log);
-                        %mask_cluster_numeric = numeric_array(mask_cluster_log);
-                        %mask_rays_log = (obj.y_bottom <= rays_y(mask_cluster_numeric)) & (rays_y(mask_cluster_numeric) <= obj.y_top);
-                        %mask_rays_numeric = mask_cluster_numeric(mask_rays_log);
+                        mask_cluster_numeric = numeric_array(mask_cluster_log);
+                        mask_rays_inside_log = (obj.y_bottom <= rays_y(mask_cluster_numeric)) & (rays_y(mask_cluster_numeric) <= obj.y_top);
+                        mask_rays_inside_numeric = mask_cluster_numeric(mask_rays_inside_log);
                         [y_min, i_min] = min(rays_y(mask_rays_numeric));
                         [y_max, i_max] = max(rays_y(mask_rays_numeric));
+                        if (y_max < obj.y_bottom) || (obj.y_top < y_min);
+                            continue;
+                        end
                         angle_max = rays_angles(mask_rays_numeric(i_max));
                         angle_min = rays_angles(mask_rays_numeric(i_min));
                         mask_points_log = (y_min <= y_meas_points) & (y_meas_points <= y_max);
@@ -407,14 +411,16 @@ classdef SequentialOpticalModel < handle
                         elseif r_cluster == 0
                             amplitude(mask_points_numeric) = sum(rays_amp(mask_rays_numeric) .* exp(i * obj.rays(4, mask_rays_numeric)));
                         else
-                            if (cos(angle_max) - cos(angle_min)) * r_cluster > 0
-                                i_ref = i_min;
-                            else
-                                i_ref = i_max;
+                            [angle_ref, i_ref] = min(abs(obj.rays(2, mask_rays_inside_numeric)));
+                            i_ref = mask_rays_inside_numeric(i_ref);
+                            if size(i_ref, 2) == 0
+                                y_center = (obj.y_bottom + obj.y_top);
+                                [y_ref, i_ref] = min(abs(rays_y(mask_rays_numeric) - y_center));
+                                i_ref = mask_rays_numeric(i_ref);
                             end
-                            y_ref = rays_y(mask_rays_numeric(i_ref));
-                            angle_ref = obj.rays(2, mask_rays_numeric(i_ref));
-                            phase_ref = obj.rays(4, mask_rays_numeric(i_ref));
+                            y_ref = rays_y(i_ref);
+                            angle_ref = obj.rays(2, i_ref);
+                            phase_ref = obj.rays(4, i_ref);
                             del_y = y_meas_points(mask_points_numeric) - y_ref;
                             del_r = angle_ref * del_y + 1/2 * del_y.^2 / r_cluster;
                             phases = rem(k * del_r, 2*pi) + phase_ref;
@@ -428,10 +434,10 @@ classdef SequentialOpticalModel < handle
                                 if isnan(linear_coeff) || isinf(linear_coeff)
                                     amplitude_init(end + 1) = rays_amp(mask_rays_numeric(i_below));
                                 else
-                                    amplitude_init(end + 1) = rays_amp(mask_rays_numeric(i_below)) - y_below * linear_coeff;
+                                    amplitude_init(end + 1) = rays_amp(mask_rays_numeric(i_below)) + (0 - y_below) * linear_coeff;
                                 end
                             end
-                            amplitude(mask_points_numeric) = amplitude(mask_points_numeric) + amplitude_init .* sqrt(1 ./ (y_max - y_min) ./ (1 + del_r ./ r_cluster)) .* exp(i * phases);
+                            amplitude(mask_points_numeric) = amplitude(mask_points_numeric) + amplitude_init .* sqrt(1 ./ (y_max - y_min) .* (1 + del_r ./ r_cluster)) .* exp(i * phases);
                         end
                     end
                     intensity_y = y_meas_points;
@@ -644,13 +650,13 @@ classdef SequentialOpticalModel < handle
 
 
 
-function raysOut = thickLens(z,raysIn,p1,p2,d,n)
+%function raysOut = thickLens(z,raysIn,p1,p2,d,n)
 
-M = [1-p2*(d/n)      p1+p2-p1*p2*(d/n);
-    -d/n             1-p1*(d/n)];
+%M = [1-p2*(d/n)      p1+p2-p1*p2*(d/n);
+%    -d/n             1-p1*(d/n)];
 
- raysOut = M*raysIn;
-end
+% raysOut = M*raysIn;
+%end
 
 
 %lense surface power
