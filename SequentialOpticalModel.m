@@ -24,6 +24,7 @@ classdef SequentialOpticalModel < handle
         n_visible_rays = 1;
         rays = [0; 0; 1; 0; 2*pi/650*10^(9)];       % [y, angle, amplitude, phase, wave vector]. Note: wave amplitude = amplitude * exp(- i * (wave vector) * (delta x))
         rays_prev = [0; 0; 1; 0; 2*pi/650*10^(9)];
+        cluster_number;
         intensity;
         intensity_meas_point;
     end
@@ -43,6 +44,7 @@ classdef SequentialOpticalModel < handle
         function status = createRays_new(obj, rays_new)
             obj.setRays(rays_new);
             obj.n_visible_rays = size(rays_new, 2);
+            obj.cluster_number = [1 : size(rays_new, 2)];
             status = 0;
         end
 
@@ -67,6 +69,8 @@ classdef SequentialOpticalModel < handle
                     obj.setRays([obj.y_bottom + y_third * 3 / 2; 0; 1; 0; obj.default_k]);
                     status = 0;
                     obj.n_visible_rays = 1;
+                    obj.cluster_number = 1;
+                    status = 0;
                 case 'flat'
                     obj.setRays([obj.centralizedDistribution(obj.y_bottom + y_third, obj.y_top - y_third, n_y);
                         zeros(1, n_y);
@@ -74,6 +78,7 @@ classdef SequentialOpticalModel < handle
                         zeros(1, n_y);
                         obj.default_k * ones(1, n_y)]);
                     obj.n_visible_rays = n_y;
+                    obj.cluster_number = ones(1, n_y);
                     status = 0;
                 case 'spherical'
                     obj.setRays([obj.y_bottom + y_third * 3 / 2 * ones(1, n_angle);
@@ -81,16 +86,18 @@ classdef SequentialOpticalModel < handle
                         ones(1, n_angle);
                         zeros(1, n_angle);
                         obj.default_k * ones(1, n_angle)]);
-                    status = 0;
                     obj.n_visible_rays = n_angle;
+                    obj.cluster_number = ones(1, n_angle);
+                    status = 0;
                 case 'combined'
                     obj.setRays([repelem(obj.centralizedDistribution(obj.y_bottom + y_third, obj.y_top - y_third, n_y), 1, n_angle);
                         repmat(obj.centralizedDistribution(-max_half_angle, max_half_angle, n_angle), 1, n_y);
                         ones(1, n_y * n_angle);
                         zeros(1, n_y * n_angle);
                         obj.default_k * ones(1, n_y * n_angle)]);
-                    status = 0;
                     obj.n_visible_rays = n_y * n_angle;
+                    obj.cluster_number = repelem([1 : n_y], 1, n_angle);
+                    status = 0;
                 case 'rainbow'
                     obj.setRays([obj.centralizedDistribution(obj.y_bottom + y_third, obj.y_top - y_third, n_y);
                         zeros(1, n_y);
@@ -98,6 +105,7 @@ classdef SequentialOpticalModel < handle
                         zeros(1, n_y);
                         obj.centralizedDistribution(obj.INFRARED_BORDER_SOFT, obj.ULTRAVIOLET_BORDER_SOFT, n_y)]);
                     obj.n_visible_rays = n_y;
+                    obj.cluster_number = [1 : n_y];
                     status = 0;
                 case 'visible'
                     obj.setRays([obj.centralizedDistribution(obj.y_bottom + y_third, obj.y_top - y_third, n_y);
@@ -106,6 +114,7 @@ classdef SequentialOpticalModel < handle
                         zeros(1, n_y);
                         obj.centralizedDistribution(obj.INFRARED_BORDER_HARD, obj.ULTRAVIOLET_BORDER_HARD, n_y)]);
                     obj.n_visible_rays = n_y;
+                    obj.cluster_number = [1 : n_y];
                     status = 0;
                 otherwise
                     status = 1;
@@ -115,8 +124,9 @@ classdef SequentialOpticalModel < handle
 
         function status = createHiddenRays(obj, n_new_hidden_rays_per_existed_ray, policy, max_divergency_angle)
             if nargin < 4
-                max_divergency_angle = atan((obj.y_top - obj.y_bottom) / (obj.x_right - obj.x_current));
-                if nargin < 4
+                max_divergency_angle = pi / 4;
+                %atan((obj.y_top - obj.y_bottom) / (obj.x_right - obj.x_current));
+                if nargin < 3
                     policy = 'random';
                     if nargin < 2
                         n_new_hidden_rays_per_existed_ray = 2;
@@ -148,10 +158,12 @@ classdef SequentialOpticalModel < handle
 
                     status = 0;
             end
-            amplitude_inv_norm = 1 ./ sqrt(1 + sum(cos(angles_addition).^2, 2));
+            amplitude_inv_norm = 1 ./ sqrt(1 + sum(((1 + cos(angles_addition)) / 2).^2, 2));
+            %amplitude_inv_norm = 1 ./ sqrt(1 + sum(cos(angles_addition).^2, 2));
             amplitude_inv_norm = repmat(transpose(amplitude_inv_norm), 1, 2*   n_half + 1);
             new_rays(2,:) = new_rays(2,:) + transpose(angles_addition(:));
-            new_rays(3,:) = new_rays(3,:) .* cos(transpose(angles_addition(:)));
+            new_rays(3,:) = new_rays(3,:) .* (1 + cos(transpose(angles_addition(:)))) / 2;
+            %new_rays(3,:) = new_rays(3,:) .* cos(transpose(angles_addition(:)));
             mask = [0: 2*n_half - 1] * n_old_rays;
             for i_ray = 1 : n_old_rays
                 %for i_sub_ray = 1 : 2*n_half
@@ -161,6 +173,7 @@ classdef SequentialOpticalModel < handle
             end
             obj.rays = [obj.rays, new_rays];
             obj.rays(3,:) = obj.rays(3,:) .* amplitude_inv_norm;
+            obj.cluster_number = repmat([1 : n_old_rays], 1, 2*n_half + 1);
         end
 
 
@@ -327,75 +340,153 @@ classdef SequentialOpticalModel < handle
         end
 
 
-        function status = deleteRays(obj, rays_to_keep)
-            obj.n_visible_rays = sum(rays_to_keep(1:obj.n_visible_rays));
-            new_rays = obj.rays(:, rays_to_keep);
+        function status = deleteRays(obj, rays_to_keep_log)
+            obj.n_visible_rays = sum(rays_to_keep_log(1:obj.n_visible_rays));
+            new_rays = obj.rays(:, rays_to_keep_log);
+            obj.cluster_number = obj.cluster_number(rays_to_keep_log);
             obj.setRays(new_rays);
         end
 
 
-        function status = calcIntensity(obj, resolution, max_rays_in_batch, coherence_length)
-            if nargin < 4
+        function status = calcIntensity(obj, resolution, method, max_rays_in_batch, coherence_length)
+            status = 1;
+            if nargin < 5
                 coherence_length = 2*pi / min(obj.rays(5,:));
-                if nargin < 3
+                if nargin < 4
                     max_rays_in_batch = 100;
-                    if nargin < 2
-                        resolution = max(19, min(151, fix(size(obj.rays, 2)/(2*10^4))));
+                    if nargin < 3
+                        method = 'cluster';
+                        if nargin < 2
+                            resolution = max(19, min(151, fix(size(obj.rays, 2)/(2*10^4))));
+                        end
                     end
                 end
             end
-
             obj.intensity = zeros(1,resolution);
-            amplitude = exp(i * obj.rays(4,:)) .* obj.rays(3,:);
+            obj.intensity_meas_point = linspace(obj.y_bottom, obj.y_top, resolution);
+
             rays_y = obj.rays(1,:);
-
-            power_y = (obj.y_top + obj.y_bottom) / 2;
-            window_half = (obj.y_top - obj.y_bottom) / 2;
+            rays_angles = obj.rays(2,:);
+            rays_amp = obj.rays(3,:);
             numeric_array = [1 : size(rays_y, 2)];
-            mask_log = ((power_y(1) - window_half(1) < rays_y) & (rays_y <= power_y(1) + window_half(1)));
-            mask_list = {numeric_array(mask_log)};
-            n_rays_inside = size(rays_y(mask_list{1}), 2);
-            [max_rays_inside, index_max_elem] = max(n_rays_inside);
+            numeric_array_aux = [1 : resolution];
 
-            while max_rays_inside > max_rays_in_batch
-                [max_rays_inside, index_max_elem] = max(n_rays_inside);
-                while (window_half(index_max_elem) < coherence_length) && (max_rays_inside > 0)
-                    n_rays_inside(index_max_elem) = 0;
+            switch method
+                case 'cluster'
+                    y_meas_points = linspace(obj.y_bottom, obj.y_top, resolution);
+                    window = (obj.y_top - obj.y_bottom) / resolution;
+                    amplitude = zeros(1,resolution);
+                    k = obj.rays(5, 1);
+
+                    for i_cluster = 1 : max(obj.cluster_number)
+                        mask_cluster_log = (obj.cluster_number == i_cluster);
+                        mask_rays_numeric = numeric_array(mask_cluster_log);
+                        %mask_cluster_numeric = numeric_array(mask_cluster_log);
+                        %mask_rays_log = (obj.y_bottom <= rays_y(mask_cluster_numeric)) & (rays_y(mask_cluster_numeric) <= obj.y_top);
+                        %mask_rays_numeric = mask_cluster_numeric(mask_rays_log);
+                        [y_min, i_min] = min(rays_y(mask_rays_numeric));
+                        [y_max, i_max] = max(rays_y(mask_rays_numeric));
+                        angle_max = rays_angles(mask_rays_numeric(i_max));
+                        angle_min = rays_angles(mask_rays_numeric(i_min));
+                        mask_points_log = (y_min <= y_meas_points) & (y_meas_points <= y_max);
+                        mask_points_numeric = numeric_array_aux(mask_points_log);
+                        if (size(mask_points_numeric, 2) == 0) && (obj.y_bottom < y_min) && (y_max < obj.y_top)
+                            resolution = resolution + 1;
+                            numeric_array_aux(end + 1) = resolution;
+                            y_meas_points(end + 1) = (y_min + y_max) / 2;
+                            amplitude(end + 1) = 0;
+                            [y_meas_points, index] = sort(y_meas_points);
+                            amplitude = amplitude(index);
+                            mask_points_log = (y_min <= y_meas_points) & (y_meas_points <= y_max);
+                            mask_points_numeric = numeric_array_aux(mask_points_log);
+                        end
+
+                        r_cluster = cos((angle_max + angle_min) / 2) * (y_max - y_min) / (angle_max - angle_min);
+                        if isnan(r_cluster)
+                            amplitude(mask_points_numeric) = sum(rays_amp(mask_rays_numeric) .* exp(i * obj.rays(4, mask_rays_numeric)));
+                        elseif r_cluster == 0
+                            amplitude(mask_points_numeric) = sum(rays_amp(mask_rays_numeric) .* exp(i * obj.rays(4, mask_rays_numeric)));
+                        else
+                            if (cos(angle_max) - cos(angle_min)) * r_cluster > 0
+                                i_ref = i_min;
+                            else
+                                i_ref = i_max;
+                            end
+                            y_ref = rays_y(mask_rays_numeric(i_ref));
+                            angle_ref = obj.rays(2, mask_rays_numeric(i_ref));
+                            phase_ref = obj.rays(4, mask_rays_numeric(i_ref));
+                            del_y = y_meas_points(mask_points_numeric) - y_ref;
+                            del_r = angle_ref * del_y + 1/2 * del_y.^2 / r_cluster;
+                            phases = rem(k * del_r, 2*pi) + phase_ref;
+                            normale = cos(angle_ref) ./ (1 + del_r ./ r_cluster);
+                            amplitude_init = [];
+                            for i_y = 1 : size(y_meas_points(mask_points_numeric), 2)
+                                diff_y = rays_y(mask_rays_numeric) - y_meas_points(mask_points_numeric(i_y));
+                                [y_above, i_above] = min(diff_y(diff_y >= 0));
+                                [y_below, i_below] = max(diff_y(diff_y <= 0));
+                                linear_coeff = (rays_amp(mask_rays_numeric(i_above)) - rays_amp(mask_rays_numeric(i_below))) / (y_above - y_below);
+                                if isnan(linear_coeff) || isinf(linear_coeff)
+                                    amplitude_init(end + 1) = rays_amp(mask_rays_numeric(i_below));
+                                else
+                                    amplitude_init(end + 1) = rays_amp(mask_rays_numeric(i_below)) - y_below * linear_coeff;
+                                end
+                            end
+                            amplitude(mask_points_numeric) = amplitude(mask_points_numeric) + amplitude_init .* sqrt(1 ./ (y_max - y_min) ./ (1 + del_r ./ r_cluster)) .* exp(i * phases);
+                        end
+                    end
+                    intensity_y = y_meas_points;
+                    intensity_value = abs(amplitude).^2;
+
+                otherwise
+                    amplitude = exp(i * obj.rays(4,:)) .* obj.rays(3,:);
+
+                    power_y = (obj.y_top + obj.y_bottom) / 2;
+                    window_half = (obj.y_top - obj.y_bottom) / 2;
+                    mask_log = ((power_y(1) - window_half(1) < rays_y) & (rays_y <= power_y(1) + window_half(1)));
+                    mask_list = {numeric_array(mask_log)};
+                    n_rays_inside = size(rays_y(mask_list{1}), 2);
                     [max_rays_inside, index_max_elem] = max(n_rays_inside);
-                end
 
-                window_half(index_max_elem) = window_half(index_max_elem) / 2;
-                window_half(end + 1) = window_half(index_max_elem);
-                power_y(end + 1) = power_y(index_max_elem) + window_half(index_max_elem);
-                power_y(index_max_elem) = power_y(index_max_elem) - window_half(index_max_elem);
+                    while max_rays_inside > max_rays_in_batch
+                        [max_rays_inside, index_max_elem] = max(n_rays_inside);
+                        while (window_half(index_max_elem) < coherence_length) && (max_rays_inside > 0)
+                            n_rays_inside(index_max_elem) = 0;
+                            [max_rays_inside, index_max_elem] = max(n_rays_inside);
+                        end
 
-                mask_left_log = (power_y(index_max_elem) - window_half(index_max_elem) < rays_y(mask_list{index_max_elem})) & (rays_y(mask_list{index_max_elem}) <= power_y(index_max_elem) + window_half(index_max_elem));
-                mask_right_log = ~mask_left_log;
-                mask_left_numeric = mask_list{index_max_elem}(mask_left_log);
-                mask_right_numeric = mask_list{index_max_elem}(mask_right_log);
-                mask_list{index_max_elem} = mask_left_numeric;
-                mask_list{end + 1} = mask_right_numeric;
+                        window_half(index_max_elem) = window_half(index_max_elem) / 2;
+                        window_half(end + 1) = window_half(index_max_elem);
+                        power_y(end + 1) = power_y(index_max_elem) + window_half(index_max_elem);
+                        power_y(index_max_elem) = power_y(index_max_elem) - window_half(index_max_elem);
 
-                n_rays_inside(index_max_elem) = size(rays_y(mask_left_numeric), 2);
-                n_rays_inside(end + 1) = size(rays_y(mask_right_numeric), 2);
+                        mask_left_log = (power_y(index_max_elem) - window_half(index_max_elem) < rays_y(mask_list{index_max_elem})) & (rays_y(mask_list{index_max_elem}) <= power_y(index_max_elem) + window_half(index_max_elem));
+                        mask_right_log = ~mask_left_log;
+                        mask_left_numeric = mask_list{index_max_elem}(mask_left_log);
+                        mask_right_numeric = mask_list{index_max_elem}(mask_right_log);
+                        mask_list{index_max_elem} = mask_left_numeric;
+                        mask_list{end + 1} = mask_right_numeric;
+
+                        n_rays_inside(index_max_elem) = size(rays_y(mask_left_numeric), 2);
+                        n_rays_inside(end + 1) = size(rays_y(mask_right_numeric), 2);
+                    end
+
+                    for j = 1 : size(power_y, 2)
+                        power_value(j) = abs(sum(amplitude(mask_list{j})))^2;
+                    end
+
+                    delta_half = (obj.y_top - obj.y_bottom) / resolution / 2;
+                    intensity_y = obj.y_bottom + 2 * delta_half * ([1:resolution] - 0.5);
+                    for j = 1:resolution
+                        mask = (intensity_y(j) - delta_half < power_y) & (power_y <= intensity_y(j) + delta_half);
+                        intensity_value(j) = sum(power_value(mask));
+                    end
             end
 
-            for j = 1 : size(power_y, 2)
-                power_value(j) = abs(sum(amplitude(mask_list{j})))^2;
-            end
-
-            delta_half = (obj.y_top - obj.y_bottom) / resolution / 2;
-            intensity_y = obj.y_bottom + 2 * delta_half * ([1:resolution] - 0.5);
-            for j = 1:resolution
-                mask = (intensity_y(j) - delta_half < power_y) & (power_y <= intensity_y(j) + delta_half);
-                intensity_value(j) = sum(power_value(mask));
-            end
-
-            obj.intensity_meas_point = intensity_y;
             max_intensity = max(intensity_value);
             if max_intensity ~= 0
                 intensity_value = 1 / max_intensity * intensity_value;
                 obj.intensity = intensity_value;
+                obj.intensity_meas_point = intensity_y;
             end
 
             if obj.autoplot_enabled
