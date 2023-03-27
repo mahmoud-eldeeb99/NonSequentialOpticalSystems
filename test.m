@@ -5,20 +5,20 @@ a= SequentialOpticalModel;
 
 
 figure(1);clf;hold on;
-[rays0,rayColors] = a.createRays(2);
+[rays0,rayColors] = a.createRays(5);
 xlabel('Optic Axis')
 ylabel('Image Plane')
 ylabel('Object Plane')
 %% Ray Tracing
-LensNum=2;
-d=[.5 .3];
-L=[2 4 6];
-Lm=cumsum(L);
-n=[2 3];
-p1=[5 5];
-p2=[6 6];
-semiDia=[1 3];
+LensNum=3;    % number of lenses
+d=[.5 .3 .6];    % thickness for each lense
+L=[2 4 2.2 6];  % separation distance btw lenses
+n=[2 3 1.5];      % refractive index for each 
+p1=[5 -1 2];    % power of each surface= n-nl/R
+p2=[5 -1 1];
+semiDia=[1 1.5 2]; % semi dia for each lens
 
+Lm=cumsum(L);
 rays1 = a.freeSpace(rays0,L(1));
 a.drawRays(rays0,rays1,0,L(1),rayColors);
 

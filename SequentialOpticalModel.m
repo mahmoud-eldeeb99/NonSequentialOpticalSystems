@@ -188,7 +188,7 @@ end
 function H_Single=H_SingleSlit(z,dim,center)
 H_Single = zeros(dim,dim);
 v_single_slit_width   = 100;   % width pixels
-H_SingleSlit_hight  = 10;    %  hight pixels
+H_SingleSlit_hight  = 5;    %  hight pixels
 
 H_Single((center-H_SingleSlit_hight):(center+H_SingleSlit_hight),(center-v_single_slit_width):(center+v_single_slit_width)) =ones(2*H_SingleSlit_hight+1,2*v_single_slit_width+1);
 end
@@ -198,7 +198,7 @@ end
 function horizontal_double=horizontal_double_slit(z,dim,center)
 horizontal_double = zeros(dim,dim);
 horizontal_double_width   = 100;   
-horizontal_double_hight  = 20;    
+horizontal_double_hight  = 5;    
 horizontal_double_gap     = 50;   
 horizontal_double(((center-horizontal_double_gap/2)-horizontal_double_hight):((center-horizontal_double_gap/2)+horizontal_double_hight),...
     (center-horizontal_double_width):(center+horizontal_double_width)) = ...
@@ -216,7 +216,7 @@ end
 %
 function vertical_single=vertical_single_slit(z,dim,center)
 vertical_single = zeros(dim,dim);
-v_single_slit_width   = 20;   % pixels
+v_single_slit_width   = 5;   % pixels
 vertical_single_hight  = 100;    % pixels
 vertical_single((center-vertical_single_hight):(center+vertical_single_hight),(center-v_single_slit_width):(center+v_single_slit_width)) = ...
                                           ones(2*vertical_single_hight+1,2*v_single_slit_width+1);
@@ -228,7 +228,7 @@ end
 %
 function vertical_double=vertical_double_slit(z,dim,center)
 vertical_double = zeros(dim,dim);
-v_single_slit_width   = 20;   % pixels
+v_single_slit_width   = 5;   % pixels
 vertical_single_slit_hight  = 100;    % pixels
 v_spacing     = 60;   % pixels
 vertical_double((center-vertical_single_slit_hight):(center+vertical_single_slit_hight),...
